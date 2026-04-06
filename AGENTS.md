@@ -8,6 +8,17 @@ Instructions for AI coding assistants and developers working on the hermes-agent
 source venv/bin/activate  # ALWAYS activate before running Python
 ```
 
+## Patch Policy
+
+Use a carried patches approach for local fixes that are not yet upstreamed.
+
+- Keep local deviations explicit and minimal.
+- Document carried patches in commits and PRs so they do not become invisible drift.
+- Prefer fixing the underlying source in-repo over adding one-off shell hacks around it.
+- When a skill or script needs a local compatibility fix, carry the patch in this fork until it is upstreamed or no longer needed.
+- Maintain the ordered patch queue in `docs/carried-patches.md`.
+- `AGENTS.md` local workflow guidance is patch `0001` in that queue and must stay out of upstream PRs unless explicitly requested.
+
 ## Project Structure
 
 ```

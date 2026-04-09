@@ -23,3 +23,21 @@ Files:
 Notes:
 - This patch should remain the first entry in the queue.
 - Any future local-only workflow guidance should be added after this entry, not before it.
+
+## patch-upstream-pr-6750 - Carried patch: show home path and model in gateway /status
+
+Status: active
+Scope: intended-for-upstream
+Upstream: PR #6750 — `feat(gateway): show home path and model in /status`
+Reason:
+- Makes gateway `/status` show which Hermes home/profile the session is actually using.
+- Surfaces the session's current model/provider without making users infer it from config or logs.
+
+Files:
+- `gateway/run.py`
+- `tests/gateway/test_status_command.py`
+
+Notes:
+- Drop this carried patch once PR #6750 lands upstream and local `main` rebases onto that commit.
+- Title display already landed upstream via PR #5942; this carry adds the missing path + model visibility.
+- PR #4678 overlaps on model display but still does not add the path line.

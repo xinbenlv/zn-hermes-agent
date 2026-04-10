@@ -1156,9 +1156,12 @@ def _(rid, params: dict) -> dict:
         key = session["session_key"]
         if "title" not in params:
             fallback = session.get("pending_title") or ""
+            regenerate = bool(params.get("regenerate"))
+            generated_title = False
+            resolved_title = fallback
             try:
                 resolved_title = db.get_session_title(key) or ""
-                if fallback:
+                if fallback and not regenerate:
                     if db.set_session_title(key, fallback):
                         session["pending_title"] = None
                         resolved_title = fallback
@@ -1170,16 +1173,38 @@ def _(rid, params: dict) -> dict:
                             resolved_title = fallback
                         elif not resolved_title:
                             resolved_title = fallback
-                elif resolved_title:
+                elif resolved_title and not regenerate:
                     session["pending_title"] = None
+
+                if regenerate or not resolved_title:
+                    history = list(session.get("history") or [])
+                    if not history:
+                        history = db.get_messages_as_conversation(
+                            key, repair_alternation=False
+                        )
+                    from agent.title_generator import generate_title_from_history
+
+                    generated = generate_title_from_history(history)
+                    if generated:
+                        if db.set_session_title(key, generated):
+                            resolved_title = generated
+                            generated_title = True
+                            session["pending_title"] = None
+                        else:
+                            existing_row = db.get_session(key)
+                            persisted = ((existing_row or {}).get("title") or "").strip()
+                            if persisted == generated:
+                                resolved_title = generated
+                                generated_title = True
             except Exception:
-                resolved_title = fallback
+                pass
             _emit_session_info_for_session(params.get("session_id", ""), session)
             return _ok(
                 rid,
                 {
                     "title": resolved_title,
                     "session_key": key,
+                    "generated": generated_title,
                 },
             )
         title = (params.get("title", "") or "").strip()

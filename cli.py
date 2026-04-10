@@ -11768,6 +11768,56 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             print(f"    2. Or configure settings in {display_hermes_home()}/config.yaml")
             print()
     
+    def _generate_current_session_title(self, *, regenerate: bool) -> bool:
+        """Generate and persist a title from the current in-memory transcript."""
+        if not self._session_db:
+            from hermes_state import format_session_db_unavailable
+
+            _cprint(f"  {format_session_db_unavailable()}")
+            return False
+        if not self.conversation_history:
+            _cprint("  No conversation yet to generate a title from.")
+            return False
+
+        _cprint(f"  {'Regenerating' if regenerate else 'Generating'} title...")
+        try:
+            from agent.title_generator import generate_title_from_history
+            from hermes_state import SessionDB
+
+            generated = generate_title_from_history(self.conversation_history)
+            sanitized = SessionDB.sanitize_title(generated or "")
+            if not sanitized:
+                _cprint("  Could not generate a title.")
+                return False
+
+            if self._session_db.get_session(self.session_id):
+                updated = self._session_db.set_session_title(self.session_id, sanitized)
+                persisted = self._session_db.get_session_title(self.session_id)
+                if not updated and persisted != sanitized:
+                    _cprint("  Could not save the generated title.")
+                    return False
+                self._pending_title = None
+                self._status_bar_title_checked_at = 0.0
+                pending = ""
+            else:
+                existing = self._session_db.get_session_by_title(sanitized)
+                if existing:
+                    _cprint(
+                        f"  Generated title '{sanitized}' is already in use by "
+                        f"session {existing['id']}."
+                    )
+                    return False
+                self._pending_title = sanitized
+                pending = " (pending)"
+
+            action = "regenerated" if regenerate else "auto-generated"
+            _cprint(f"  Title {action}{pending}: {sanitized}")
+            return True
+        except Exception:
+            logger.debug("Explicit title generation failed", exc_info=True)
+            _cprint("  Could not generate a title.")
+            return False
+
     def process_command(self, command: str) -> bool:
         """
         Process a slash command.
@@ -11925,7 +11975,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             parts = cmd_original.split(maxsplit=1)
             if len(parts) > 1:
                 raw_title = parts[1].strip()
-                if raw_title:
+                if raw_title.lower() == "!new":
+                    self._generate_current_session_title(regenerate=True)
+                elif raw_title:
                     if self._session_db:
                         # Sanitize the title early so feedback matches what gets stored
                         try:
@@ -11964,16 +12016,17 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                         _cprint(f"  {format_session_db_unavailable()}")
                 else:
                     _cprint("  Usage: /title <your session title>")
-            # Show current title and session ID if no argument given
+            # Show the current title, or generate one from the transcript.
             elif self._session_db:
                 _cprint(f"  Session ID: {self.session_id}")
                 session = self._session_db.get_session(self.session_id)
                 if session and session.get("title"):
                     _cprint(f"  Title: {session['title']}")
+                    _cprint("  To regenerate: /title !new")
                 elif self._pending_title:
                     _cprint(f"  Title (pending): {self._pending_title}")
                 else:
-                    _cprint("  No title set. Usage: /title <your session title>")
+                    self._generate_current_session_title(regenerate=False)
             else:
                 from hermes_state import format_session_db_unavailable
                 _cprint(f"  {format_session_db_unavailable()}")

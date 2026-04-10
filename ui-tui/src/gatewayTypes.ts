@@ -255,6 +255,7 @@ export interface SessionMostRecentResponse {
 }
 
 export interface SessionTitleResponse {
+  generated?: boolean
   pending?: boolean
   session_key?: string
   title?: string

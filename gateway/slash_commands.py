@@ -4728,7 +4728,8 @@ class GatewaySlashCommandsMixin:
                 pass  # Session might already exist, ignore errors
 
         title_arg = event.get_command_args().strip()
-        if title_arg:
+        regenerate = title_arg.lower() == "!new"
+        if title_arg and not regenerate:
             # Sanitize the title before setting
             try:
                 from hermes_state import SessionDB
@@ -4761,13 +4762,53 @@ class GatewaySlashCommandsMixin:
                     return t("gateway.title.not_found")
             except ValueError as e:
                 return t("gateway.shared.warn_passthrough", error=e)
-        else:
-            # Show the current title and session ID
-            title = await self._session_db.get_session_title(session_id)
-            if title:
-                return t("gateway.title.current_with_title", session_id=session_id, title=title)
-            else:
-                return t("gateway.title.current_no_title", session_id=session_id)
+
+        # Bare /title keeps showing an existing title. If none exists, generate
+        # one from the durable conversation. /title !new forces regeneration.
+        current_title = await self._session_db.get_session_title(session_id)
+        if current_title and not regenerate:
+            return t(
+                "gateway.title.current_with_title",
+                session_id=session_id,
+                title=current_title,
+            )
+
+        try:
+            history = await self._session_db.get_messages_as_conversation(
+                session_id, repair_alternation=False
+            )
+            from agent.title_generator import generate_title_from_history
+            from hermes_state import SessionDB
+
+            generated = await asyncio.to_thread(generate_title_from_history, history)
+            sanitized = SessionDB.sanitize_title(generated or "")
+            if sanitized:
+                updated = await self._session_db.set_session_title(session_id, sanitized)
+                if updated or await self._session_db.get_session_title(session_id) == sanitized:
+                    schedule_rename = getattr(
+                        self, "_schedule_telegram_topic_title_rename", None
+                    )
+                    if callable(schedule_rename):
+                        try:
+                            await asyncio.to_thread(
+                                schedule_rename, source, session_id, sanitized
+                            )
+                        except Exception:
+                            logger.debug(
+                                "Failed to rename Telegram topic after generated /title",
+                                exc_info=True,
+                            )
+                    action = "regenerated" if regenerate else "auto-generated"
+                    return f"Title {action}: **{sanitized}**"
+        except ValueError as e:
+            return t("gateway.shared.warn_passthrough", error=e)
+        except Exception:
+            logger.debug("Generated /title failed", exc_info=True)
+
+        if regenerate:
+            suffix = f" Current title: **{current_title}**" if current_title else ""
+            return f"Could not regenerate title.{suffix}"
+        return t("gateway.title.current_no_title", session_id=session_id)
 
     async def _handle_resume_command(self, event: MessageEvent) -> str:
         """Handle /resume command — list or switch to a previous session."""

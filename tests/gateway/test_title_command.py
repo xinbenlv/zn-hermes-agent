@@ -5,7 +5,7 @@ across all gateway messenger platforms.
 """
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -125,6 +125,52 @@ class TestHandleTitleCommand:
 
         runner._schedule_telegram_topic_title_rename.assert_not_called()
         db.close()
+
+    @pytest.mark.asyncio
+    async def test_bare_title_generates_when_session_is_untitled(self):
+        runner = _make_runner()
+        runner._session_db = AsyncMock()
+        runner._session_db.get_session_title.return_value = None
+        runner._session_db.get_messages_as_conversation.return_value = [
+            {"role": "user", "content": "upgrade Hermes"},
+            {"role": "assistant", "content": "the upgrade is in progress"},
+        ]
+        runner._session_db.set_session_title.return_value = True
+        runner._schedule_telegram_topic_title_rename = MagicMock()
+
+        with patch(
+            "agent.title_generator.generate_title_from_history",
+            return_value="Hermes Upgrade",
+        ):
+            result = await runner._handle_title_command(_make_event(text="/title"))
+
+        assert result == "Title auto-generated: **Hermes Upgrade**"
+        runner._session_db.set_session_title.assert_awaited_once_with(
+            "test_session_123", "Hermes Upgrade"
+        )
+
+    @pytest.mark.asyncio
+    async def test_title_new_replaces_an_existing_title(self):
+        runner = _make_runner()
+        runner._session_db = AsyncMock()
+        runner._session_db.get_session_title.return_value = "Old Title"
+        runner._session_db.get_messages_as_conversation.return_value = [
+            {"role": "user", "content": "upgrade Hermes"},
+            {"role": "assistant", "content": "the upgrade is in progress"},
+        ]
+        runner._session_db.set_session_title.return_value = True
+        runner._schedule_telegram_topic_title_rename = MagicMock()
+
+        with patch(
+            "agent.title_generator.generate_title_from_history",
+            return_value="Hermes Upgrade",
+        ):
+            result = await runner._handle_title_command(_make_event(text="/title !new"))
+
+        assert result == "Title regenerated: **Hermes Upgrade**"
+        runner._session_db.set_session_title.assert_awaited_once_with(
+            "test_session_123", "Hermes Upgrade"
+        )
 
 
 # ---------------------------------------------------------------------------

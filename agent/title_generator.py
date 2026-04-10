@@ -528,6 +528,61 @@ def apply_instant_title(
         return None
 
 
+def generate_title_from_history(
+    conversation_history: Optional[list[dict]],
+    timeout: Optional[float] = None,
+    *,
+    failure_callback: Optional[FailureCallback] = None,
+    main_runtime: Optional[dict] = None,
+) -> Optional[str]:
+    """Generate a title from an existing conversation.
+
+    This is the explicit mid-session counterpart to first-turn auto-titling,
+    used by bare ``/title`` and ``/title !new``. It deliberately reuses the
+    current upstream prompt and validation instead of imposing a fork-specific
+    title format.
+    """
+    if not conversation_history:
+        return None
+
+    user_messages: list[str] = []
+    assistant_messages: list[str] = []
+    for message in conversation_history:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "").lower()
+        text = flatten_message_text(message.get("content")).strip()
+        if not text:
+            continue
+        if role == "user" and is_titleable_user_message(text):
+            user_messages.append(text)
+        elif role == "assistant":
+            assistant_messages.append(text)
+
+    if not user_messages:
+        return None
+
+    user_snippet = "\n".join(text[:200] for text in user_messages[-3:])[:500]
+    assistant_snippet = "\n".join(
+        text[:200] for text in assistant_messages[-3:]
+    )[:500]
+    history_context = user_snippet
+    if assistant_snippet:
+        history_context += f"\n\nRecent assistant context:\n{assistant_snippet}"
+    title_kwargs = {
+        "timeout": timeout,
+        "failure_callback": failure_callback,
+    }
+    if main_runtime is not None:
+        title_kwargs["main_runtime"] = main_runtime
+    generated = generate_title(history_context, **title_kwargs)
+    if generated:
+        return generated
+
+    # Keep the command useful if the auxiliary model is unavailable.
+    return derive_title(user_messages[-1])
+
+
 def auto_title_session(
     session_db,
     session_id: str,

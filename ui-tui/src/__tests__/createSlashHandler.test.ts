@@ -1086,9 +1086,9 @@ describe('createSlashHandler', () => {
     })
   })
 
-  it('/title with no args fetches and displays the current title', async () => {
+  it('/title with no args auto-generates and displays a missing title', async () => {
     patchUiState({ sid: 'sid-abc' })
-    const rpc = vi.fn(() => Promise.resolve({ title: 'demo title' }))
+    const rpc = vi.fn(() => Promise.resolve({ generated: true, title: 'demo title' }))
     const ctx = buildCtx({ gateway: { ...buildGateway(), rpc } })
 
     createSlashHandler(ctx)('/title')
@@ -1096,7 +1096,21 @@ describe('createSlashHandler', () => {
     expect(rpc).toHaveBeenCalledWith('session.title', { session_id: 'sid-abc' })
     expect(ctx.gateway.gw.request).not.toHaveBeenCalled()
     await vi.waitFor(() => {
-      expect(ctx.transcript.sys).toHaveBeenCalledWith('title: demo title')
+      expect(ctx.transcript.sys).toHaveBeenCalledWith('title auto-generated: demo title')
+    })
+  })
+
+  it('/title !new asks the gateway to regenerate the title', async () => {
+    patchUiState({ sid: 'sid-abc' })
+    const rpc = vi.fn(() => Promise.resolve({ generated: true, title: 'fresh title' }))
+    const ctx = buildCtx({ gateway: { ...buildGateway(), rpc } })
+
+    createSlashHandler(ctx)('/title !new')
+
+    expect(rpc).toHaveBeenCalledWith('session.title', { session_id: 'sid-abc', regenerate: true })
+    expect(ctx.gateway.gw.request).not.toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(ctx.transcript.sys).toHaveBeenCalledWith('title regenerated: fresh title')
     })
   })
 })

@@ -9,7 +9,7 @@ Covers:
   "too long" + "empty after cleanup" pair.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from tests.cli.test_cli_init import _make_cli
 
@@ -53,3 +53,52 @@ def test_title_too_long_prints_single_error(capsys):
     # The length error should fire; the contradictory "empty after cleanup"
     # message must NOT also appear.
     assert "empty after cleanup" not in out.lower()
+
+
+def test_bare_title_generates_and_persists_from_conversation(capsys):
+    cli = _make_cli()
+    cli.conversation_history = [
+        {"role": "user", "content": "fix the flaky auth test"},
+        {"role": "assistant", "content": "I found the race"},
+    ]
+    cli._session_db = MagicMock()
+    cli._session_db.get_session.return_value = {"id": cli.session_id, "title": None}
+    cli._session_db.get_session_title.return_value = "Fix Flaky Auth Test"
+    cli._session_db.set_session_title.return_value = True
+
+    with patch(
+        "agent.title_generator.generate_title_from_history",
+        return_value="Fix Flaky Auth Test",
+    ):
+        assert cli.process_command("/title") is True
+
+    assert "Title auto-generated: Fix Flaky Auth Test" in capsys.readouterr().out
+    cli._session_db.set_session_title.assert_called_once_with(
+        cli.session_id, "Fix Flaky Auth Test"
+    )
+
+
+def test_title_new_replaces_an_existing_title(capsys):
+    cli = _make_cli()
+    cli.conversation_history = [
+        {"role": "user", "content": "upgrade Hermes"},
+        {"role": "assistant", "content": "the upgrade is in progress"},
+    ]
+    cli._session_db = MagicMock()
+    cli._session_db.get_session.return_value = {
+        "id": cli.session_id,
+        "title": "Old Title",
+    }
+    cli._session_db.get_session_title.return_value = "Hermes Upgrade"
+    cli._session_db.set_session_title.return_value = True
+
+    with patch(
+        "agent.title_generator.generate_title_from_history",
+        return_value="Hermes Upgrade",
+    ):
+        assert cli.process_command("/title !new") is True
+
+    assert "Title regenerated: Hermes Upgrade" in capsys.readouterr().out
+    cli._session_db.set_session_title.assert_called_once_with(
+        cli.session_id, "Hermes Upgrade"
+    )

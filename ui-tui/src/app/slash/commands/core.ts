@@ -241,7 +241,7 @@ export const coreCommands: SlashCommand[] = [
   },
 
   {
-    help: 'set or show current session title',
+    help: 'set, show, or regenerate current session title',
     name: 'title',
     run: (arg, ctx) => {
       if (!ctx.sid) {
@@ -249,14 +249,28 @@ export const coreCommands: SlashCommand[] = [
       }
 
       const title = arg.trim()
+      const regenerate = title.toLowerCase() === '!new'
 
-      if (!arg) {
+      if (!arg || regenerate) {
         ctx.gateway
-          .rpc<SessionTitleResponse>('session.title', { session_id: ctx.sid })
+          .rpc<SessionTitleResponse>('session.title', {
+            session_id: ctx.sid,
+            ...(regenerate ? { regenerate: true } : {})
+          })
           .then(
             ctx.guarded<SessionTitleResponse>(r => {
               const current = (r?.title ?? '').trim()
-              ctx.transcript.sys(current ? `title: ${current}` : 'no title set')
+              if (!current) {
+                ctx.transcript.sys(regenerate ? 'could not regenerate title' : 'no title set')
+                return
+              }
+
+              patchUiState({ sessionTitle: current })
+              if (r?.generated) {
+                ctx.transcript.sys(`title ${regenerate ? 'regenerated' : 'auto-generated'}: ${current}`)
+              } else {
+                ctx.transcript.sys(`title: ${current}`)
+              }
             })
           )
           .catch(ctx.guardedErr)

@@ -46,6 +46,31 @@ from gateway.platforms.base import (
 logger = logging.getLogger(__name__)
 
 
+def _looks_like_html_document(data: bytes) -> bool:
+    """Best-effort sniff for HTML payloads accidentally returned as media."""
+    if not data:
+        return False
+    prefix = data[:512].lstrip().lower()
+    return (
+        prefix.startswith(b"<!doctype html")
+        or prefix.startswith(b"<html")
+        or prefix.startswith(b"<head")
+        or prefix.startswith(b"<body")
+    )
+
+
+def _validate_slack_download_payload(response: Any, data: bytes, *, kind: str) -> None:
+    """Reject obvious auth/login HTML pages returned from Slack file URLs."""
+    content_type = str(getattr(response, "headers", {}).get("content-type", "") or "")
+    normalized_ct = content_type.split(";", 1)[0].strip().lower()
+
+    if normalized_ct == "text/html" or _looks_like_html_document(data):
+        raise ValueError(
+            f"Slack returned HTML instead of {kind} payload"
+            + (f" (content-type={normalized_ct})" if normalized_ct else "")
+        )
+
+
 @dataclass
 class _ThreadContextCache:
     """Cache entry for fetched thread context."""
@@ -1595,6 +1620,11 @@ class SlackAdapter(BasePlatformAdapter):
                         headers={"Authorization": f"Bearer {bot_token}"},
                     )
                     response.raise_for_status()
+                    _validate_slack_download_payload(
+                        response,
+                        response.content,
+                        kind="audio" if audio else "image",
+                    )
 
                     if audio:
                         from gateway.platforms.base import cache_audio_from_bytes
@@ -1630,6 +1660,7 @@ class SlackAdapter(BasePlatformAdapter):
                         headers={"Authorization": f"Bearer {bot_token}"},
                     )
                     response.raise_for_status()
+                    _validate_slack_download_payload(response, response.content, kind="file")
                     return response.content
                 except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
                     last_exc = exc

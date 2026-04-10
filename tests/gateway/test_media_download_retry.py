@@ -489,6 +489,35 @@ class TestSlackDownloadSlackFile:
         assert mock_client.get.call_count == 1
         mock_sleep.assert_not_called()
 
+    def test_rejects_html_login_page_even_with_200(self, tmp_path, monkeypatch):
+        """A 200 HTML login page must not be cached as an image."""
+        monkeypatch.setattr("gateway.platforms.base.IMAGE_CACHE_DIR", tmp_path / "img")
+        adapter = _make_slack_adapter()
+
+        fake_response = MagicMock()
+        fake_response.content = (
+            b"<!DOCTYPE html><html><head><title>Slack</title></head>"
+            b"<body>Please sign in</body></html>"
+        )
+        fake_response.headers = {"content-type": "text/html; charset=utf-8"}
+        fake_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=fake_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        async def run():
+            with patch("httpx.AsyncClient", return_value=mock_client):
+                await adapter._download_slack_file(
+                    "https://files.slack.com/img.jpg", ext=".jpg"
+                )
+
+        with pytest.raises(ValueError, match="HTML instead of image"):
+            asyncio.run(run())
+
+        assert not (tmp_path / "img").exists() or not any((tmp_path / "img").iterdir())
+
 
 # ---------------------------------------------------------------------------
 # SlackAdapter._download_slack_file_bytes
@@ -518,6 +547,29 @@ class TestSlackDownloadSlackFileBytes:
 
         result = asyncio.run(run())
         assert result == b"raw bytes here"
+
+    def test_rejects_html_login_page_for_raw_file_downloads(self):
+        """A 200 HTML login page must not be treated as a real file download."""
+        adapter = _make_slack_adapter()
+
+        fake_response = MagicMock()
+        fake_response.content = b"<!DOCTYPE html><html><body>Sign in</body></html>"
+        fake_response.headers = {"content-type": "text/html"}
+        fake_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=fake_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        async def run():
+            with patch("httpx.AsyncClient", return_value=mock_client):
+                await adapter._download_slack_file_bytes(
+                    "https://files.slack.com/file.bin"
+                )
+
+        with pytest.raises(ValueError, match="HTML instead of file"):
+            asyncio.run(run())
 
     def test_retries_on_429_then_succeeds(self):
         """429 on first attempt is retried; raw bytes returned on second."""

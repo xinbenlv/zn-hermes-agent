@@ -84,6 +84,10 @@ class OAuthNonInteractiveError(RuntimeError):
 # tests can verify the callback server and the redirect_uri share a port.
 _oauth_port: int | None = None
 
+# Expected OAuth state parameter extracted from the authorization URL.
+# Used to validate the callback against CSRF / session-fixation attacks.
+_expected_oauth_state: str | None = None
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -288,7 +292,16 @@ async def _redirect_handler(authorization_url: str) -> None:
 
     Opens the browser automatically when possible; always prints the URL
     as a fallback for headless/SSH/gateway environments.
+
+    Also extracts and stores the ``state`` parameter from the authorization
+    URL so the callback handler can validate it against CSRF attacks.
     """
+    global _expected_oauth_state
+    parsed_url = urlparse(authorization_url)
+    url_params = parse_qs(parsed_url.query)
+    state_values = url_params.get("state")
+    _expected_oauth_state = state_values[0] if state_values else None
+
     msg = (
         f"\n  MCP OAuth: authorization required.\n"
         f"  Open this URL in your browser:\n\n"
@@ -358,6 +371,25 @@ async def _wait_for_callback() -> tuple[str, str | None]:
         raise OAuthNonInteractiveError(
             "OAuth callback timed out — no authorization code received. "
             "Ensure you completed the browser authorization flow."
+        )
+
+    # Validate the state parameter to defend against CSRF / session-fixation.
+    # The expected state was captured from the authorization URL by the
+    # redirect handler; the callback state comes from the OAuth provider's
+    # redirect.  A mismatch means the callback did not originate from the
+    # authorization request we initiated.
+    callback_state = result["state"]
+    if _expected_oauth_state is not None and callback_state != _expected_oauth_state:
+        logger.error(
+            "OAuth state mismatch: expected=%s, received=%s — "
+            "possible CSRF or session-fixation attack",
+            _expected_oauth_state,
+            callback_state,
+        )
+        raise RuntimeError(
+            "OAuth state parameter mismatch — the callback did not match "
+            "the authorization request. This may indicate a CSRF attack. "
+            "Please retry the authorization flow."
         )
 
     return result["auth_code"], result["state"]

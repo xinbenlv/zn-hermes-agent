@@ -12,8 +12,11 @@ RUN apt-get update && \
 COPY . /opt/hermes
 WORKDIR /opt/hermes
 
-# Install Python and Node dependencies in one layer, no cache
-RUN pip install --no-cache-dir -e ".[all]" --break-system-packages && \
+# Install Python and Node dependencies in one layer, no cache.
+# Use uv instead of pip for the giant [all] extra set — pip now hits
+# resolution-too-deep on GitHub Actions' Debian 13 / Python 3.13 image.
+RUN pip install --no-cache-dir uv --break-system-packages && \
+    uv pip install --system -e ".[all]" && \
     npm install --prefer-offline --no-audit && \
     npx playwright install --with-deps chromium --only-shell && \
     cd /opt/hermes/scripts/whatsapp-bridge && \

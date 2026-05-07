@@ -147,6 +147,103 @@ def test_api_calendar_list_uses_events_list(api_module):
 
 
 
+def test_gmail_send_requires_some_recipient(api_module):
+    args = api_module.argparse.Namespace(
+        to="",
+        cc="",
+        bcc="",
+        subject="Test",
+        body="Hello",
+        html=False,
+        thread_id="",
+        from_header="",
+    )
+
+    with pytest.raises(SystemExit, match="at least one recipient"):
+        api_module.gmail_send(args)
+
+
+def test_gmail_send_allows_bcc_only(api_module):
+    captured = {}
+
+    def fake_run_gws(path, *, params=None, body=None):
+        captured["path"] = path
+        captured["params"] = params
+        captured["body"] = body
+        return {"id": "msg123", "threadId": "thread123"}
+
+    args = api_module.argparse.Namespace(
+        to="",
+        cc="",
+        bcc="hidden@example.com",
+        subject="Test",
+        body="Hello",
+        html=False,
+        thread_id="",
+        from_header="",
+    )
+
+    with patch.object(api_module, "_run_gws", side_effect=fake_run_gws):
+        api_module.gmail_send(args)
+
+    raw = captured["body"]["raw"]
+    decoded = api_module.base64.urlsafe_b64decode(raw.encode()).decode()
+    assert "Bcc: hidden@example.com" in decoded
+    assert "Subject: Test" in decoded
+    assert captured["path"] == ["gmail", "users", "messages", "send"]
+
+
+def test_gmail_reply_uses_normalized_sender_and_message_id(api_module):
+    calls = []
+
+    def fake_run_gws(path, *, params=None, body=None):
+        calls.append((path, params, body))
+        if path[-1] == "get":
+            return {
+                "id": "original123",
+                "threadId": "thread123",
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "sender@example.com"},
+                        {"name": "Subject", "value": "Hello"},
+                        {"name": "Message-ID", "value": "<message-123@example.com>"},
+                    ]
+                },
+            }
+        return {"id": "reply123", "threadId": "thread123"}
+
+    args = api_module.argparse.Namespace(
+        message_id="original123",
+        body="Reply body",
+        from_header="",
+    )
+
+    with patch.object(api_module, "_run_gws", side_effect=fake_run_gws):
+        api_module.gmail_reply(args)
+
+    raw = calls[-1][2]["raw"]
+    decoded = api_module.base64.urlsafe_b64decode(raw.encode()).decode()
+    assert "To: sender@example.com" in decoded
+    assert "In-Reply-To: <message-123@example.com>" in decoded
+
+
+def test_gmail_reply_rejects_missing_sender(api_module):
+    original = {
+        "id": "original123",
+        "threadId": "thread123",
+        "payload": {"headers": [{"name": "Subject", "value": "Hello"}]},
+    }
+    args = api_module.argparse.Namespace(
+        message_id="original123",
+        body="Reply body",
+        from_header="",
+    )
+
+    with patch.object(api_module, "_run_gws", return_value=original):
+        with pytest.raises(SystemExit, match="at least one recipient"):
+            api_module.gmail_reply(args)
+
+
 def test_api_get_credentials_refresh_persists_authorized_user_type(api_module, monkeypatch):
     token_path = api_module.TOKEN_PATH
     _write_token(token_path, token="ya29.old")

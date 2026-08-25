@@ -260,12 +260,15 @@ export const coreCommands: SlashCommand[] = [
           .then(
             ctx.guarded<SessionTitleResponse>(r => {
               const current = (r?.title ?? '').trim()
+
               if (!current) {
                 ctx.transcript.sys(regenerate ? 'could not regenerate title' : 'no title set')
+
                 return
               }
 
               patchUiState({ sessionTitle: current })
+
               if (r?.generated) {
                 ctx.transcript.sys(`title ${regenerate ? 'regenerated' : 'auto-generated'}: ${current}`)
               } else {

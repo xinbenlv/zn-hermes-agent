@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from agent.title_generator import (
     generate_title,
+    generate_title_from_history,
     auto_title_session,
     maybe_auto_title,
     _title_language,
@@ -153,6 +154,56 @@ class TestGenerateTitle:
 
 
 
+
+
+class TestGenerateTitleFromHistory:
+    """Tests for explicit mid-conversation title generation."""
+
+    def test_uses_recent_user_and_assistant_context(self):
+        history = [
+            {"role": "user", "content": "old user context"},
+            {"role": "assistant", "content": "old assistant context"},
+            {"role": "user", "content": "help me create a pull request"},
+            {"role": "assistant", "content": "I created the branch"},
+            {"role": "user", "content": "push it to origin"},
+            {"role": "assistant", "content": "the pull request is open"},
+        ]
+
+        with patch(
+            "agent.title_generator.generate_title", return_value="GitHub PR Workflow"
+        ) as generate:
+            assert generate_title_from_history(history) == "GitHub PR Workflow"
+
+        prompt = generate.call_args.args[0]
+        assert "push it to origin" in prompt
+        assert "Recent assistant context" in prompt
+        assert "the pull request is open" in prompt
+
+    def test_ignores_machine_messages_and_requires_a_real_user_turn(self):
+        history = [
+            {"role": "system", "content": "system prompt"},
+            {"role": "tool", "content": "tool output"},
+            {"role": "assistant", "content": "hello"},
+        ]
+
+        with patch("agent.title_generator.generate_title") as generate:
+            assert generate_title_from_history(history) is None
+        generate.assert_not_called()
+
+    def test_falls_back_to_derived_title_when_model_generation_fails(self):
+        history = [
+            {"role": "user", "content": "debug the flaky authentication test"},
+            {"role": "assistant", "content": "I will inspect the failure"},
+        ]
+
+        with patch("agent.title_generator.generate_title", return_value=None):
+            title = generate_title_from_history(history)
+
+        assert title == "debug the flaky authentication test"
+
+    def test_returns_none_for_empty_history(self):
+        assert generate_title_from_history([]) is None
+        assert generate_title_from_history(None) is None
 
 
 class TestAutoTitleSession:

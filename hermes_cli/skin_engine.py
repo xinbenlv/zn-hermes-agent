@@ -128,6 +128,7 @@ BUILT-IN SKINS
 ==============
 
 - ``default`` — Classic Hermes gold/kawaii (the current look)
+- ``zn-hermes`` — ZN-HERMES-AGENT downstream distro identity
 - ``ares``    — Crimson/bronze war-god theme with custom spinner wings
 - ``mono``    — Clean grayscale monochrome
 - ``slate``   — Cool blue developer-focused theme
@@ -774,6 +775,36 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
 [#F29C38]⠀⠀⠀⠀⠀⠀⠀⣼⡟⠀⠀⢻⣧⠀⠀⠀⠀⠀⠀⠀⠀[/]
 [dim #7A3511]⠀⠀⠀⠀⠀⠀⠀tail flame lit⠀⠀⠀⠀⠀⠀⠀⠀[/]""",
     },
+}
+
+# Fork-only downstream identity. Copy the default palettes rather than editing
+# the upstream default skin: selecting ``default`` must remain Hermes branding,
+# while ``zn-hermes`` keeps the same palette with a distinct distro identity.
+_BUILTIN_SKINS["zn-hermes"] = {
+    "name": "zn-hermes",
+    "description": "ZN-HERMES-AGENT — personal downstream distro",
+    "colors": dict(_BUILTIN_SKINS["default"]["colors"]),
+    "light_colors": dict(_BUILTIN_SKINS["default"]["light_colors"]),
+    "spinner": dict(_BUILTIN_SKINS["default"]["spinner"]),
+    "branding": {
+        "agent_name": "ZN-HERMES-AGENT",
+        "welcome": (
+            "Welcome to ZN-HERMES-AGENT — my personal Hermes distro with a few "
+            "carried features and fixes I plan to upstream once they get merged. "
+            "Type your message or /help for commands."
+        ),
+        "goodbye": "Goodbye! ⚕",
+        "response_label": " ⚕ ZN-Hermes ",
+        "prompt_symbol": "❯",
+        "help_header": "(^_^)? Available Commands",
+    },
+    "tool_prefix": _BUILTIN_SKINS["default"]["tool_prefix"],
+    "banner_logo": """[bold #FFD700]███████╗███╗   ██╗      ██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
+[bold #FFD700]╚══███╔╝████╗  ██║      ██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]
+[#FFBF00]  ███╔╝ ██╔██╗ ██║█████╗███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]
+[#FFBF00] ███╔╝  ██║╚██╗██║╚════╝██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]
+[#CD7F32]███████╗██║ ╚████║      ██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]
+[#CD7F32]╚══════╝╚═╝  ╚═══╝      ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]""",
 }
 
 

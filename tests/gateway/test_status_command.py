@@ -104,6 +104,31 @@ async def test_status_command_reads_token_totals_from_session_db():
 
 
 @pytest.mark.asyncio
+async def test_status_command_includes_profile_aware_home(monkeypatch, tmp_path):
+    hermes_home = tmp_path / ".hermes"
+    profile_home = hermes_home / "profiles" / "milo"
+    profile_home.mkdir(parents=True)
+
+    session_entry = SessionEntry(
+        session_key=build_session_key(_make_source()),
+        session_id="sess-1",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        platform=Platform.TELEGRAM,
+        chat_type="dm",
+    )
+    runner = _make_runner(session_entry)
+    runner.config.multiplex_profiles = True
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    event = _make_event("/status")
+    event.source.profile = "milo"
+    result = await runner._handle_status_command(event)
+
+    assert f"**Home:** `{profile_home}`" in result
+
+
+@pytest.mark.asyncio
 async def test_status_command_includes_live_agent_model_and_context():
     session_entry = SessionEntry(
         session_key=build_session_key(_make_source()),

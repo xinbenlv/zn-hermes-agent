@@ -6845,6 +6845,90 @@ def test_session_title_does_not_queue_noop_when_row_exists(monkeypatch):
         server._sessions.pop("sid", None)
 
 
+def test_session_title_generates_from_history_when_missing(monkeypatch):
+    class _FakeDB:
+        def __init__(self):
+            self.title = ""
+
+        def get_session_title(self, _key):
+            return self.title
+
+        def get_session(self, key):
+            return {"id": key, "title": self.title}
+
+        def set_session_title(self, _key, title):
+            self.title = title
+            return True
+
+    db = _FakeDB()
+    session = _session(pending_title=None)
+    session["history"] = [
+        {"role": "user", "content": "upgrade Hermes"},
+        {"role": "assistant", "content": "the upgrade is in progress"},
+    ]
+    server._sessions["sid"] = session
+    monkeypatch.setattr(server, "_get_db", lambda: db)
+    monkeypatch.setattr(
+        "agent.title_generator.generate_title_from_history",
+        lambda _history: "Hermes Upgrade",
+    )
+    try:
+        resp = server.handle_request(
+            {"id": "1", "method": "session.title", "params": {"session_id": "sid"}}
+        )
+
+        assert resp is not None
+        assert resp["result"]["title"] == "Hermes Upgrade"
+        assert resp["result"]["generated"] is True
+        assert db.title == "Hermes Upgrade"
+    finally:
+        server._sessions.pop("sid", None)
+
+
+def test_session_title_regenerate_replaces_existing_title(monkeypatch):
+    class _FakeDB:
+        def __init__(self):
+            self.title = "Old Title"
+
+        def get_session_title(self, _key):
+            return self.title
+
+        def get_session(self, key):
+            return {"id": key, "title": self.title}
+
+        def set_session_title(self, _key, title):
+            self.title = title
+            return True
+
+    db = _FakeDB()
+    session = _session(pending_title=None)
+    session["history"] = [
+        {"role": "user", "content": "upgrade Hermes"},
+        {"role": "assistant", "content": "the upgrade is in progress"},
+    ]
+    server._sessions["sid"] = session
+    monkeypatch.setattr(server, "_get_db", lambda: db)
+    monkeypatch.setattr(
+        "agent.title_generator.generate_title_from_history",
+        lambda _history: "Hermes Upgrade",
+    )
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "session.title",
+                "params": {"session_id": "sid", "regenerate": True},
+            }
+        )
+
+        assert resp is not None
+        assert resp["result"]["title"] == "Hermes Upgrade"
+        assert resp["result"]["generated"] is True
+        assert db.title == "Hermes Upgrade"
+    finally:
+        server._sessions.pop("sid", None)
+
+
 def test_session_title_get_falls_back_to_pending_when_db_read_throws(monkeypatch):
     class _FakeDB:
         def get_session_title(self, _key):

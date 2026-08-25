@@ -53,6 +53,75 @@ SCOPES = [
     "https://www.googleapis.com/auth/documents",
 ]
 
+# Maps each (service, action) to the scopes it requires.
+# If ANY scope in the list is granted, the operation is allowed (OR logic for
+# alternatives like gmail.readonly vs gmail.modify which both permit reads).
+# Each entry is a list of scope-sets; the operation needs at least one scope
+# from each set (AND of ORs).
+_SCOPE_PREFIX = "https://www.googleapis.com/auth/"
+_OPERATION_SCOPES: dict[tuple[str, str], list[list[str]]] = {
+    # Gmail — read-only actions accept readonly OR modify (modify is a superset)
+    ("gmail", "search"): [[f"{_SCOPE_PREFIX}gmail.readonly", f"{_SCOPE_PREFIX}gmail.modify"]],
+    ("gmail", "get"): [[f"{_SCOPE_PREFIX}gmail.readonly", f"{_SCOPE_PREFIX}gmail.modify"]],
+    ("gmail", "labels"): [[f"{_SCOPE_PREFIX}gmail.readonly", f"{_SCOPE_PREFIX}gmail.modify", f"{_SCOPE_PREFIX}gmail.labels"]],
+    ("gmail", "send"): [[f"{_SCOPE_PREFIX}gmail.send", f"{_SCOPE_PREFIX}gmail.modify"]],
+    ("gmail", "reply"): [[f"{_SCOPE_PREFIX}gmail.send", f"{_SCOPE_PREFIX}gmail.modify"]],
+    ("gmail", "modify"): [[f"{_SCOPE_PREFIX}gmail.modify"]],
+    # Calendar
+    ("calendar", "list"): [[f"{_SCOPE_PREFIX}calendar", f"{_SCOPE_PREFIX}calendar.readonly"]],
+    ("calendar", "create"): [[f"{_SCOPE_PREFIX}calendar"]],
+    ("calendar", "delete"): [[f"{_SCOPE_PREFIX}calendar"]],
+    # Drive
+    ("drive", "search"): [[f"{_SCOPE_PREFIX}drive.readonly", f"{_SCOPE_PREFIX}drive"]],
+    # Contacts
+    ("contacts", "list"): [[f"{_SCOPE_PREFIX}contacts.readonly", f"{_SCOPE_PREFIX}contacts"]],
+    # Sheets
+    ("sheets", "get"): [[f"{_SCOPE_PREFIX}spreadsheets.readonly", f"{_SCOPE_PREFIX}spreadsheets"]],
+    ("sheets", "update"): [[f"{_SCOPE_PREFIX}spreadsheets"]],
+    ("sheets", "append"): [[f"{_SCOPE_PREFIX}spreadsheets"]],
+    # Docs
+    ("docs", "get"): [[f"{_SCOPE_PREFIX}documents.readonly", f"{_SCOPE_PREFIX}documents"]],
+}
+
+
+def _granted_scopes() -> set[str]:
+    """Return the set of OAuth scopes currently granted in the stored token."""
+    try:
+        payload = json.loads(TOKEN_PATH.read_text())
+    except Exception:
+        return set()
+    raw = payload.get("scopes") or payload.get("scope")
+    if not raw:
+        return set()
+    return {s.strip() for s in (raw.split() if isinstance(raw, str) else raw) if s.strip()}
+
+
+def _check_operation_scopes(service: str, action: str) -> None:
+    """Check that the token has sufficient scopes for the requested operation."""
+    required = _OPERATION_SCOPES.get((service, action))
+    if required is None:
+        return
+
+    granted = _granted_scopes()
+    for alternatives in required:
+        if any(scope in granted for scope in alternatives):
+            continue
+        print(
+            f"This operation ({service} {action}) requires one of the following scopes:",
+            file=sys.stderr,
+        )
+        for scope in alternatives:
+            print(f"  - {scope}", file=sys.stderr)
+        print(
+            (
+                "\nYour token does not include any of them. "
+                f"Re-run setup.py from the active Hermes profile ({TOKEN_PATH.parent}) "
+                "to grant the additional scope."
+            ),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
 
 def _normalize_authorized_user_payload(payload: dict) -> dict:
     normalized = dict(payload)
@@ -275,6 +344,7 @@ def gmail_search(args):
 
 
 
+
 def gmail_get(args):
     if _gws_binary():
         msg = _run_gws(
@@ -315,13 +385,33 @@ def gmail_get(args):
 
 
 
+
+def _split_recipients(value: str) -> list[str]:
+    return [part.strip() for part in (value or "").split(",") if part.strip()]
+
+
+
+def _require_any_recipient(*fields: str) -> None:
+    recipients = []
+    for field in fields:
+        recipients.extend(_split_recipients(field))
+    if not recipients:
+        raise SystemExit("ERROR: at least one recipient is required across --to, --cc, or --bcc")
+
+
+
 def gmail_send(args):
+    _require_any_recipient(args.to, args.cc, args.bcc)
+
     if _gws_binary():
         message = MIMEText(args.body, "html" if args.html else "plain")
-        message["To"] = args.to
+        if args.to:
+            message["To"] = args.to
         message["Subject"] = args.subject
         if args.cc:
             message["Cc"] = args.cc
+        if args.bcc:
+            message["Bcc"] = args.bcc
         if args.from_header:
             message["From"] = args.from_header
 
@@ -340,10 +430,13 @@ def gmail_send(args):
 
     service = build_service("gmail", "v1")
     message = MIMEText(args.body, "html" if args.html else "plain")
-    message["To"] = args.to
+    if args.to:
+        message["To"] = args.to
     message["Subject"] = args.subject
     if args.cc:
         message["Cc"] = args.cc
+    if args.bcc:
+        message["Bcc"] = args.bcc
     if args.from_header:
         message["From"] = args.from_header
 
@@ -355,6 +448,7 @@ def gmail_send(args):
 
     result = service.users().messages().send(userId="me", body=body).execute()
     print(json.dumps({"status": "sent", "id": result["id"], "threadId": result.get("threadId", "")}, indent=2))
+
 
 
 
@@ -375,8 +469,11 @@ def gmail_reply(args):
         if not subject.startswith("Re:"):
             subject = f"Re: {subject}"
 
+        recipient = headers.get("from", "")
+        _require_any_recipient(recipient)
+
         message = MIMEText(args.body)
-        message["To"] = headers.get("from", "")
+        message["To"] = recipient
         message["Subject"] = subject
         if args.from_header:
             message["From"] = args.from_header
@@ -404,8 +501,11 @@ def gmail_reply(args):
     if not subject.startswith("Re:"):
         subject = f"Re: {subject}"
 
+    recipient = headers.get("from", "")
+    _require_any_recipient(recipient)
+
     message = MIMEText(args.body)
-    message["To"] = headers.get("from", "")
+    message["To"] = recipient
     message["Subject"] = subject
     if args.from_header:
         message["From"] = args.from_header
@@ -421,6 +521,7 @@ def gmail_reply(args):
 
 
 
+
 def gmail_labels(args):
     if _gws_binary():
         results = _run_gws(["gmail", "users", "labels", "list"], params={"userId": "me"})
@@ -432,6 +533,7 @@ def gmail_labels(args):
     results = service.users().labels().list(userId="me").execute()
     labels = [{"id": l["id"], "name": l["name"], "type": l.get("type", "")} for l in results.get("labels", [])]
     print(json.dumps(labels, indent=2))
+
 
 
 
@@ -515,6 +617,7 @@ def calendar_list(args):
 
 
 
+
 def calendar_create(args):
     event = {
         "summary": args.summary,
@@ -550,6 +653,7 @@ def calendar_create(args):
         "summary": result.get("summary", ""),
         "htmlLink": result.get("htmlLink", ""),
     }, indent=2))
+
 
 
 
@@ -867,6 +971,7 @@ def sheets_get(args):
 
 
 
+
 def sheets_update(args):
     values = json.loads(args.values)
     body = {"values": values}
@@ -890,6 +995,7 @@ def sheets_update(args):
         valueInputOption="USER_ENTERED", body=body,
     ).execute()
     print(json.dumps({"updatedCells": result.get("updatedCells", 0), "updatedRange": result.get("updatedRange", "")}, indent=2))
+
 
 
 
@@ -1069,11 +1175,13 @@ def main():
     p.set_defaults(func=gmail_get)
 
     p = gmail_sub.add_parser("send")
-    p.add_argument("--to", required=True)
+    p.add_argument("--to", default="")
     p.add_argument("--subject", required=True)
     p.add_argument("--body", required=True)
     p.add_argument("--cc", default="")
+    p.add_argument("--bcc", default="")
     p.add_argument("--from", dest="from_header", default="", help="Custom From header (e.g. '\"Agent Name\" <user@example.com>')")
+    p.add_argument("--from-header", dest="from_header", help=argparse.SUPPRESS)
     p.add_argument("--html", action="store_true", help="Send body as HTML")
     p.add_argument("--thread-id", default="", help="Thread ID for threading")
     p.set_defaults(func=gmail_send)
@@ -1218,6 +1326,7 @@ def main():
     p.set_defaults(func=docs_append)
 
     args = parser.parse_args()
+    _check_operation_scopes(args.service, args.action)
     args.func(args)
 
 

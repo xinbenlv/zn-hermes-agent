@@ -576,6 +576,7 @@ class GatewaySlashCommandsMixin:
     async def _handle_status_command(self, event: MessageEvent) -> str:
         """Handle /status command."""
         from gateway.run import _AGENT_PENDING_SENTINEL, _load_gateway_config, _resolve_gateway_model
+        from hermes_constants import display_hermes_home
 
         source = event.source
         session_entry = await self.async_session_store.get_or_create_session(source)
@@ -726,10 +727,23 @@ class GatewaySlashCommandsMixin:
         elif context_used:
             context_line = t("gateway.status.context_used", used=f"{context_used:,}")
 
+        home_display = display_hermes_home()
+        if getattr(getattr(self, "config", None), "multiplex_profiles", False):
+            try:
+                from gateway.run import _profile_runtime_scope
+
+                resolve_profile_home = getattr(self, "_resolve_profile_home_for_source")
+                profile_home = resolve_profile_home(source)
+                with _profile_runtime_scope(profile_home):
+                    home_display = display_hermes_home()
+            except Exception:
+                home_display = display_hermes_home()
+
         lines = [
             t("gateway.status.header"),
             "",
             t("gateway.status.session_id", session_id=session_entry.session_id),
+            t("gateway.profile.home", home=home_display),
         ]
         if title:
             lines.append(t("gateway.status.title", title=title))

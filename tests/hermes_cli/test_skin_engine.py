@@ -32,6 +32,23 @@ class TestSkinConfig:
 
 
 class TestBuiltinSkins:
+    def test_zn_hermes_skin_is_distinct_from_default(self):
+        from hermes_cli.skin_engine import load_skin
+
+        default = load_skin("default")
+        zn_hermes = load_skin("zn-hermes")
+
+        assert default.get_branding("agent_name") == "Hermes Agent"
+        assert default.banner_logo == ""
+        assert zn_hermes.name == "zn-hermes"
+        assert zn_hermes.colors == default.colors
+        assert zn_hermes.light_colors == default.light_colors
+        assert zn_hermes.get_branding("agent_name") == "ZN-HERMES-AGENT"
+        assert zn_hermes.get_branding("response_label") == " ⚕ ZN-Hermes "
+        assert "personal Hermes distro" in zn_hermes.get_branding("welcome")
+        assert zn_hermes.banner_logo
+        assert zn_hermes.banner_logo != default.banner_logo
+
     def test_ares_skin_loads(self):
         from hermes_cli.skin_engine import load_skin
         skin = load_skin("ares")
@@ -77,6 +94,7 @@ class TestSkinManagement:
         skins = list_skins()
         names = [s["name"] for s in skins]
         assert "default" in names
+        assert "zn-hermes" in names
         assert "ares" in names
         assert "mono" in names
         assert "slate" in names

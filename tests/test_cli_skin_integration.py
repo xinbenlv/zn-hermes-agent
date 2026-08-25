@@ -82,6 +82,16 @@ class TestCliSkinPromptIntegration:
 
 class TestCompactBannerSkinIntegration:
 
+    def test_zn_hermes_compact_banner_uses_downstream_branding(self):
+        set_active_skin("zn-hermes")
+
+        with patch("cli.shutil.get_terminal_size", return_value=SimpleNamespace(columns=90)), \
+             patch.dict(_build_compact_banner.__globals__, {"format_banner_version_label": lambda: "Hermes Agent v0.1.0 (test)"}):
+            banner = _build_compact_banner()
+
+        assert "ZN-HERMES-AGENT" in banner
+        assert "NOUS HERMES" not in banner
+
     def test_poseidon_compact_banner_uses_skin_branding_instead_of_nous_hermes(self):
         set_active_skin("poseidon")
 
